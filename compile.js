@@ -96,7 +96,30 @@ fs.copyFileSync(path.join("node_modules", "requirejs", "require.js"), path.join(
 
 let src = path.join("src");
 
+function computeFileDestination(filepath) {
+    let parsed = path.parse(filepath);
+    let dir = path.join(dist, path.relative(src, parsed.dir));
+    switch (parsed.ext) {
+        case ".riot": {
+            return path.join(dir, parsed.name + ".js");
+        }
+        case ".ts": {
+            if (!parsed.name.endsWith(".d")) {
+                return path.join(dir, parsed.name + ".js");
+            }
+            return "";
+        }
+        default: {
+            return path.join(dir, parsed.base);
+        }
+    }
+}
+function computeDirDestination(dirpath) {
+    return path.join(dist, path.relative(src, dirpath));
+}
+
 let processedFiles = [];
+let processedDirs = [];
 function processFiles() {
     (function walkDir(dir, onFile, onDir, skipDirs) {
         skipDirs = skipDirs || [];
@@ -130,57 +153,72 @@ function processFiles() {
         });
         if (index !== -1) {
             if (mtime+0 === processedFiles[index][1]+0) {
+                processedFiles[index][2] = true;
                 return;
             }
             processedFiles.splice(index, 1);
         }
         let parsed = path.parse(filepath);
-        let dir = path.join(dist, path.relative(src, parsed.dir));
+        let destinationFilepath = computeFileDestination(filepath);
         switch (parsed.ext) {
             case ".riot": {
-                let parsedSource;
+                let parsedSource = null;
                 try {
                     parsedSource = compile(fs.readFileSync(filepath, "utf-8")).code;
                 } catch (e) {
                     console.error('\x1b[31m' + filepath + e.message + '\x1b[0m');
-                    return;
                 }
-                let stream = fs.createWriteStream(path.join(dir, parsed.name + ".js"), "utf-8");
-                stream.write(parsedSource);
-                stream.close();
-                console.log(filepath + ": compiled successfully");
+                if (parsedSource != null){
+                    let stream = fs.createWriteStream(destinationFilepath, "utf-8");
+                    stream.write(parsedSource);
+                    stream.close();
+                    console.log(filepath + ": compiled successfully");
+                }
                 break;
             }
             case ".ts": {
                 if (!parsed.name.endsWith(".d")) {
-                    let parsedSource;
+                    let parsedSource = null;
                     try {
                         parsedSource = typescript.transpileModule(fs.readFileSync(filepath, "utf-8"), {
                             compilerOptions
                         }).outputText;
                     } catch (e) {
                         console.error('\x1b[31m' + filepath + e.message + '\x1b[0m');
-                        return;
                     }
-                    let stream = fs.createWriteStream(path.join(dir, parsed.name + ".js"), "utf-8");
-                    stream.write(parsedSource);
-                    stream.close();
-                    console.log(filepath + ": transpiled successfully");
+                    if (parsedSource != null){
+                        let stream = fs.createWriteStream(destinationFilepath, "utf-8");
+                        stream.write(parsedSource);
+                        stream.close();
+                        console.log(filepath + ": transpiled successfully");
+                    }
                 }
                 break;
             }
             default: {
-                fs.copyFileSync(filepath, path.join(dir, parsed.base));
+                fs.copyFileSync(filepath, destinationFilepath);
                 console.log(filepath + ": copied successfully");
             }
         }
     
-        processedFiles.push([ filepath, mtime ]);
+        processedFiles.push([ filepath, mtime, true ]);
     }, function (dirpath) {
-        dir = path.join(dist, path.relative(src, dirpath));
+        let index = -1;
+        processedDirs.some((processedDir, i) => {
+            if (processedDir[0] === dirpath) {
+                index = i;
+                return true;
+            }
+            return false;
+        });
+        if (index !== -1) {
+            processedDirs.splice(index, 1);
+        }
+        dir = computeDirDestination(dirpath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir);
         }
+        processedDirs.push([dirpath, true]);
     });
 }
 
@@ -192,6 +230,42 @@ if (process.argv.some(arg => (arg === "-w") || (arg === "--watch"))) {
     while (true) {
         let time = Date.now();
         while (Date.now() - time < 1000) { continue; }
+        processedFiles.forEach(processedFile => {
+            processedFile[2] = false;
+        });
+        processedDirs.forEach(processedDir => {
+            processedDir[1] = false;
+        });
         processFiles();
+        let indexToRemove = [];
+        processedFiles.forEach((processedFile, index) => {
+            if (processedFile[2]) {
+                return;
+            }
+            fs.unlinkSync(computeFileDestination(processedFile[0]));
+            console.log(processedFile[0]+": removed");
+            indexToRemove.push(index);
+        });
+        if (indexToRemove.length > 0) {
+            for (let index = indexToRemove.length - 1; index >= 0; index--) {
+                processedFiles.splice(indexToRemove[index], 1);
+            }
+        }
+        indexToRemove = [];
+        processedDirs.forEach((processedDir, index) => {
+            if (processedDir[1]) {
+                return;
+            }
+            let dirpath = computeDirDestination(processedDir[0]);
+            if (fs.existsSync(dirpath)) {
+                rimraf.sync(dirpath);
+            }
+            indexToRemove.push(index);
+        });
+        if (indexToRemove.length > 0) {
+            for (let index = indexToRemove.length - 1; index >= 0; index--) {
+                processedDirs.splice(indexToRemove[index], 1);
+            }
+        }
     }
 }
