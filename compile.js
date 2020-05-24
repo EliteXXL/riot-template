@@ -96,52 +96,102 @@ fs.copyFileSync(path.join("node_modules", "requirejs", "require.js"), path.join(
 
 let src = path.join("src");
 
-(function walkDir(dir, onFile, onDir, skipDirs) {
-    skipDirs = skipDirs || [];
-    let dirs = Array.from(fs.readdirSync(dir));
-    dirs.forEach(f => {
-        let filepath = path.join(dir, f);
-        let isDirectory = fs.statSync(filepath).isDirectory();
-        if (isDirectory) {
-            if (!skipDirs.some(function (dir) {
-                    return dir === filepath;
-            })) {
-                onDir.call(null, filepath);
-                walkDir(filepath, onFile, onDir, skipDirs);
+let processedFiles = [];
+function processFiles() {
+    (function walkDir(dir, onFile, onDir, skipDirs) {
+        skipDirs = skipDirs || [];
+        let dirs = Array.from(fs.readdirSync(dir));
+        dirs.forEach(f => {
+            let filepath = path.join(dir, f);
+            let isDirectory = fs.statSync(filepath).isDirectory();
+            if (isDirectory) {
+                if (!skipDirs.some(function (dir) {
+                        return dir === filepath;
+                })) {
+                    onDir.call(null, filepath);
+                    walkDir(filepath, onFile, onDir, skipDirs);
+                } else {
+                    console.log("Skipped dir", filepath);
+                }
             } else {
-                console.log("Skipped dir", filepath);
+                onFile.call(null, filepath);
             }
-        } else {
-            onFile.call(null, filepath);
+        });
+    })(src, function (filepath) {
+        var stats = fs.statSync(filepath);
+        var mtime = stats.mtime;
+        let index = -1;
+        processedFiles.some((processedFile, i) => {
+            if (processedFile[0] === filepath) {
+                index = i;
+                return true;
+            }
+            return false;
+        });
+        if (index !== -1) {
+            if (mtime+0 === processedFiles[index][1]+0) {
+                return;
+            }
+            processedFiles.splice(index, 1);
+        }
+        let parsed = path.parse(filepath);
+        let dir = path.join(dist, path.relative(src, parsed.dir));
+        switch (parsed.ext) {
+            case ".riot": {
+                let parsedSource;
+                try {
+                    parsedSource = compile(fs.readFileSync(filepath, "utf-8")).code;
+                } catch (e) {
+                    console.error('\x1b[31m' + filepath + e.message + '\x1b[0m');
+                    return;
+                }
+                let stream = fs.createWriteStream(path.join(dir, parsed.name + ".js"), "utf-8");
+                stream.write(parsedSource);
+                stream.close();
+                console.log(filepath + ": compiled successfully");
+                break;
+            }
+            case ".ts": {
+                if (!parsed.name.endsWith(".d")) {
+                    let parsedSource;
+                    try {
+                        parsedSource = typescript.transpileModule(fs.readFileSync(filepath, "utf-8"), {
+                            compilerOptions
+                        }).outputText;
+                    } catch (e) {
+                        console.error('\x1b[31m' + filepath + e.message + '\x1b[0m');
+                        return;
+                    }
+                    let stream = fs.createWriteStream(path.join(dir, parsed.name + ".js"), "utf-8");
+                    stream.write(parsedSource);
+                    stream.close();
+                    console.log(filepath + ": transpiled successfully");
+                }
+                break;
+            }
+            default: {
+                fs.copyFileSync(filepath, path.join(dir, parsed.base));
+                console.log(filepath + ": copied successfully");
+            }
+        }
+    
+        processedFiles.push([ filepath, mtime ]);
+    }, function (dirpath) {
+        dir = path.join(dist, path.relative(src, dirpath));
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir);
         }
     });
-})(src, function (filepath) {
-    let parsed = path.parse(filepath);
-    let dir = path.join(dist, path.relative(src, parsed.dir));
-    switch (parsed.ext) {
-        case ".riot": {
-            let stream = fs.createWriteStream(path.join(dir, parsed.name + ".js"), "utf-8");
-            stream.write(compile(fs.readFileSync(filepath, "utf-8")).code);
-            stream.close();
-            break;
-        }
-        case ".ts": {
-            if (!parsed.name.endsWith(".d")) {
-                let stream = fs.createWriteStream(path.join(dir, parsed.name + ".js"), "utf-8");
-                stream.write(typescript.transpileModule(fs.readFileSync(filepath, "utf-8"), {
-                    compilerOptions
-                }).outputText);
-                stream.close();
-            }
-            break;
-        }
-        default: {
-            fs.copyFileSync(filepath, path.join(dir, parsed.base));
-        }
+}
+
+processFiles();
+
+const process = require('process');
+if (process.argv.some(arg => (arg === "-w") || (arg === "--watch"))) {
+    console.log("---Watching files---");
+    while (true) {
+        let time = Date.now();
+        while (Date.now() - time < 1000) { continue; }
+        processFiles();
     }
-}, function (dirpath) {
-    dir = path.join(dist, path.relative(src, dirpath));
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir);
-    }
-});
+}
