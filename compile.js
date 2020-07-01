@@ -166,7 +166,7 @@ function processFiles() {
                 try {
                     parsedSource = compile(fs.readFileSync(filepath, "utf-8")).code;
                 } catch (e) {
-                    console.error('\x1b[31m' + filepath + e.message + '\x1b[0m');
+                    console.error('\x1b[31m' + filepath + ": " + e.message + '\x1b[0m');
                 }
                 if (parsedSource != null){
                     let stream = fs.createWriteStream(destinationFilepath, "utf-8");
