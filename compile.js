@@ -7,6 +7,8 @@ const typescript = require("typescript");
 const rimraf = require("rimraf");
 const path = require("path");
 const fs = require("fs");
+const childProcess = require("child_process");
+const ncp = require("ncp");
 
 let compilerOptions = {
     target: typescript.ScriptTarget.ES5,
@@ -82,7 +84,8 @@ if (fs.existsSync(dist)) {
 }
 var stop = new Date().getTime();
 while (new Date().getTime() < stop + 50);
-let libPath = path.join(dist, "scripts", "lib"); {
+let libPath = path.join(dist, "scripts", "lib");
+{
     let current = null;
     libPath.split(path.sep).forEach(dir => {
         dir = current != null ? path.join(current, dir) : dir;
@@ -90,9 +93,134 @@ let libPath = path.join(dist, "scripts", "lib"); {
         current = dir;
     });
 }
-fs.copyFileSync(path.join("node_modules", "riot", "riot.min.js"), path.join(libPath, "riot.js"));
-fs.copyFileSync(path.join("node_modules", "riot", "LICENSE.txt"), path.join(libPath, "riot LICENSE"));
-fs.copyFileSync(path.join("node_modules", "requirejs", "require.js"), path.join(libPath, "require.js"));
+{
+    // copy module dependencies
+
+    function prepareCopyDirectory(dest) {
+        dest.split(path.sep).slice(0, -1).reduce((prev, value) => {
+            let current = path.join(prev, value);
+            if (!fs.existsSync(current)) {
+                fs.mkdirSync(current);
+            }
+            return current;
+        }, "");
+    }
+
+    function prepareWriteFile(dest) {
+        dest.split(path.sep).slice(0, -1).reduce((prev, value) => {
+            let current = path.join(prev, value);
+            if (!fs.existsSync(current)) {
+                fs.mkdirSync(current);
+            }
+            return current;
+        }, "");
+    }
+
+    let dependencies = {};
+    try {
+        dependencies = JSON.parse(childProcess.execSync("npm ls --json --prod --depth=0", {
+            encoding: "utf-8"
+        })).dependencies;
+    } catch (error) {
+        console.error(error);
+    }
+    Object.entries(dependencies).forEach(([name]) => {
+        let bundleFile;
+        let basePath = path.join("node_modules", name);
+        if (name === "requirejs") {
+            bundleFile = path.join(basePath, "require.js");
+        } else {
+            const packageJSON = path.join(basePath, "/package.json");
+            if (fs.existsSync(packageJSON)) {
+                const package = JSON.parse(fs.readFileSync(packageJSON, {
+                    encoding: "utf-8"
+                }));
+                let possiblePath;
+                if (package.main && fs.existsSync(possiblePath = path.join(basePath, package.main))) {
+                    bundleFile = possiblePath;
+                } else if (fs.existsSync(possiblePath = path.join(basePath, "dist"))) {
+                    let dirpath = path.join(libPath, name);
+                    prepareCopyDirectory(dirpath);
+                    ncp(possiblePath, dirpath, (err) => {
+                        if (err) {
+                            console.error(err);
+                            return;
+                        }
+                        console.log("copied \"" + possiblePath + path.sep + "\" to \"" + path.join("lib", name) + path.sep + "\"");
+                    });
+                    return;
+                }
+            }
+        }
+        if (bundleFile == null) {
+            console.error("cannot copy package: ", name);
+            return;
+        }
+        if (name === "requirejs") {
+            let filename = path.join(libPath, "require.js");
+            prepareWriteFile(filename);
+            fs.copyFile(bundleFile, filename, (err) => {
+                if (err) {
+                    console.error(err);
+                    return;
+                }
+                console.log("copied \"" + bundleFile + "\" to \"require.js\"");
+            });
+            return;
+        }
+        let code = fs.readFileSync(bundleFile, {
+            encoding: "utf-8"
+        });
+        let modules = [];
+        let sourceFile = typescript.createSourceFile(
+            bundleFile,
+            code,
+            typescript.ScriptTarget.ES5,
+            true,
+            typescript.ScriptKind.TS
+        );
+        let statements = sourceFile.statements;
+        let splitCode = code.split("");
+        let strictEnd;
+        for (let i = statements.length - 1; i >= 0; i--) {
+            let statement = statements[i];
+            let start = statement.getStart();
+            let end = statement.getEnd();
+            if (strictEnd == null && statement.kind === 226 && splitCode.slice(start, end).join("").indexOf("use strict") !== -1) {
+                if (statement.expression.text === "use strict") {
+                    strictEnd = end;
+                }
+            }
+            if (typescript.SyntaxKind[statement.kind].startsWith("Import")) {
+                let count = end - start;
+                modules.push([splitCode.slice(start, end).join(""), start, end]);
+            }
+        }
+        if (modules.indexOf("module") === -1) {
+            if (strictEnd == null) {
+                strictEnd = modules.length > 0 ? modules[0][2] : 0;
+            }
+            splitCode.splice(strictEnd, 0, "\nimport module = require(\"module\"); module;");
+        }
+        code = splitCode.join("");
+        const result = typescript.transpileModule(code, {
+            fileName: undefined,
+            compilerOptions: {
+                target: typescript.ScriptTarget.ESNext,
+                module: typescript.ModuleKind.AMD
+            }
+        }).outputText;
+        let filename = path.join(libPath, name + ".js");
+        prepareWriteFile(filename);
+        fs.writeFile(filename, result, err => {
+            if (err) {
+                console.error(err);
+                return;
+            }
+            console.log("transpiled \"" + bundleFile + "\" to \"" + path.join("lib", name) + ".js\"");
+        });
+    });
+}
 
 let src = path.join("src");
 
