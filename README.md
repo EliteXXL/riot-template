@@ -1,6 +1,20 @@
-## Usage
-The script will manage the files in the `src` folder
+# RIOT template
 
-To compile your code you only have to run `npm run compile`. This will compile any `.riot` file, transpile any `.ts` (not `.d.ts`) file and copy anything else.
-
-If you want the script to continuously checking for changes in your files and compile them automatically when changed, you should use `npm run compile:watch`
+## Installation
+Clone the repository:
+```sh
+git clone https://github.com/Kal-Aster/riot-template
+```
+or simply download it zipped and unzip it wherever you want
+### Usage
+- Enter the newly created folder
+- Code in folder `src` (the default entry point is `src/index.ts`)
+- Whenever you're ready run rollup
+```sh
+npx rollup -c
+```
+If you want to auto-run rollup during development run it in watch mode
+```sh
+npx rollup -c --watch
+```
+- Enjoy ☻

@@ -1,23 +1,24 @@
 {
-  "name": "riot-template",
-  "version": "1.2.0",
-  "description": "",
-  "dependencies": {
-    "requirejs": "^2.3.6",
-    "riot": "^4.13.2"
-  },
-  "devDependencies": {
-    "@riotjs/compiler": "^4.9.2",
-    "fs": "0.0.1-security",
-    "ncp": "^2.0.0",
-    "path": "^0.12.7",
-    "rimraf": "^3.0.2",
-    "typescript": "^3.9.5"
-  },
-  "scripts": {
-    "compile": "node ./compile.js",
-    "compile:watch": "node ./compile.js -w"
-  },
-  "author": "Giuliano Collacchioni",
-  "license": "MIT"
+    "name": "riot-template",
+    "displayName": "RiotTemplate",
+    "version": "2.0.0",
+    "description": "A project template for riot.js with rollup",
+    "scripts": {},
+    "keywords": [],
+    "author": "Giuliano Collacchioni",
+    "license": "MIT",
+    "dependencies": {
+        "riot": "^5.0.0"
+    },
+    "devDependencies": {
+        "@riotjs/compiler": "^5.0.0",
+        "@rollup/plugin-commonjs": "^17.1.0",
+        "@rollup/plugin-node-resolve": "^11.2.0",
+        "@rollup/plugin-typescript": "^8.2.0",
+        "postcss-url": "^10.1.1",
+        "rollup": "^2.33.3",
+        "rollup-plugin-postcss": "^4.0.0",
+        "rollup-plugin-riot": "^5.0.0",
+        "typescript": "^4.1.2"
+    }
 }
